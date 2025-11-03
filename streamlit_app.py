@@ -1,4 +1,4 @@
-# web_app_futures.py - VERSION AVEC CACHE PERSISTANT
+# web_app_futures.py - VERSION AVEC CACHE SYNCHRONISÉ
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,7 +20,7 @@ import pickle
 CONFIG = {
     "initial_capital": 100,
     "cryptos": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT"],
-    "check_interval": 10,  # Réduit pour les tests
+    "check_interval": 10,
     "max_leverage": 10,
     "default_leverage": 3,
     "risk_per_trade": 0.02,
@@ -41,41 +41,59 @@ CONFIG = {
 }
 
 # =============================================
-# SYSTÈME DE CACHE PERSISTANT
+# SYSTÈME DE CACHE SYNCHRONISÉ
 # =============================================
-CACHE_FILE = "bot_cache.pkl"
+CACHE_FILE = "shared_bot_cache.pkl"
+CACHE_LOCK = threading.Lock()
 
-def load_persistent_cache():
-    """Charge le cache persistant depuis le fichier"""
-    try:
-        if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, 'rb') as f:
-                return pickle.load(f)
-        return None
-    except Exception as e:
-        print(f"❌ Erreur chargement cache: {e}")
-        return None
+def load_shared_cache():
+    """Charge le cache partagé avec verrouillage"""
+    with CACHE_LOCK:
+        try:
+            if os.path.exists(CACHE_FILE):
+                with open(CACHE_FILE, 'rb') as f:
+                    return pickle.load(f)
+            return None
+        except Exception as e:
+            print(f"❌ Erreur chargement cache: {e}")
+            return None
 
-def save_persistent_cache(data):
-    """Sauvegarde les données dans le cache persistant"""
+def save_shared_cache(data):
+    """Sauvegarde dans le cache partagé avec verrouillage"""
+    with CACHE_LOCK:
+        try:
+            with open(CACHE_FILE, 'wb') as f:
+                pickle.dump(data, f)
+            return True
+        except Exception as e:
+            print(f"❌ Erreur sauvegarde cache: {e}")
+            return False
+
+def get_bot_state():
+    """Récupère l'état ACTUEL du bot depuis le cache partagé"""
+    return load_shared_cache()
+
+def update_bot_state(bot_manager):
+    """Met à jour l'état du bot dans le cache partagé"""
+    if bot_manager:
+        return save_shared_cache(bot_manager)
+    return False
+
+def sync_bot_state():
+    """Synchronise l'état du bot entre toutes les sessions"""
     try:
-        with open(CACHE_FILE, 'wb') as f:
-            pickle.dump(data, f)
-        return True
+        shared_state = get_bot_state()
+        if shared_state and 'bot_manager' in st.session_state:
+            # Mettre à jour notre session avec l'état partagé
+            st.session_state.bot_manager = shared_state
+            return True
+        return False
     except Exception as e:
-        print(f"❌ Erreur sauvegarde cache: {e}")
+        print(f"❌ Erreur synchronisation: {e}")
         return False
 
-def save_bot_automatically():
-    """Sauvegarde automatique du bot après actions importantes"""
-    if 'bot_manager' in st.session_state:
-        try:
-            save_persistent_cache(st.session_state.bot_manager)
-        except Exception as e:
-            print(f"❌ Erreur sauvegarde auto: {e}")
-
 # =============================================
-# AI TRADER FUTURES AVEC LEVIER DYNAMIQUE
+# AI TRADER FUTURES (identique à avant)
 # =============================================
 class FuturesAITrader:
     def __init__(self, initial_capital=100):
@@ -95,7 +113,6 @@ class FuturesAITrader:
             data = response.json()
             return float(data['price'])
         except:
-            # Fallback avec prix réalistes
             base_prices = {
                 "BTCUSDT": 40000 + random.uniform(-1000, 1000),
                 "ETHUSDT": 2500 + random.uniform(-100, 100), 
@@ -147,16 +164,13 @@ class FuturesAITrader:
     
     def calculate_dynamic_leverage(self, volatility, confidence, market_condition):
         """Calcule le levier optimal selon l'analyse"""
-        # Base leverage selon la confiance
         base_leverage = min(5, 1 + (confidence * 4))
         
-        # Ajustement selon la volatilité
         if volatility > 0.05:
             base_leverage *= 0.7
         elif volatility < 0.02:
             base_leverage *= 1.2
             
-        # Ajustement selon condition marché
         if market_condition == "TRENDING":
             base_leverage *= 1.1
         elif market_condition == "RANGING":
@@ -172,18 +186,13 @@ class FuturesAITrader:
         if price_diff == 0:
             return 0, 0
             
-        # Quantité avec levier
         quantity = (risk_amount * leverage) / price_diff
-        
-        # Marge requise
         margin = (quantity * entry_price) / leverage
         
         return quantity, margin
     
     def calculate_stop_loss_take_profit(self, entry_price, action, volatility):
         """Calcule SL/TP dynamiques"""
-        atr = volatility * entry_price
-        
         if action == "BUY":
             stop_loss = entry_price * (1 - (2 * volatility))
             take_profit = entry_price * (1 + (3 * volatility))
@@ -201,32 +210,26 @@ class FuturesAITrader:
             return "ISOLATED"
     
     def advanced_analysis(self, data, current_price, symbol):
-        """Analyse technique pour Futures - VERSION STABLE"""
+        """Analyse technique pour Futures"""
         try:
             if not data or len(data) < 10:
                 return {'action': 'HOLD', 'confidence': 0.3, 'reason': 'Données insuffisantes'}
             
-            closes = [float(candle[4]) for candle in data[-50:]]  # Limiter aux 50 derniers
+            closes = [float(candle[4]) for candle in data[-50:]]
             highs = [float(candle[2]) for candle in data[-20:]]
             lows = [float(candle[3]) for candle in data[-20:]]
             
-            # Indicateurs techniques
             sma_20 = sum(closes[-20:]) / min(20, len(closes))
             sma_50 = sum(closes[-50:]) / min(50, len(closes))
             rsi = self.calculate_rsi(closes)
             
-            # Volatilité
             volatility = (max(highs) - min(lows)) / current_price if highs and lows else 0.02
-            
-            # Condition marché
             price_trend = "TRENDING" if abs(sma_20 - sma_50) / sma_50 > 0.02 else "RANGING"
             
-            # Signaux
             buy_signals = 0
             sell_signals = 0
             reasons = []
             
-            # Signal RSI
             if rsi < 35:
                 buy_signals += 2
                 reasons.append(f"RSI oversold ({rsi:.1f})")
@@ -234,7 +237,6 @@ class FuturesAITrader:
                 sell_signals += 2
                 reasons.append(f"RSI overbought ({rsi:.1f})")
             
-            # Signal Trend
             if sma_20 > sma_50 and current_price > sma_20:
                 buy_signals += 1
                 reasons.append("Trend haussier")
@@ -242,7 +244,6 @@ class FuturesAITrader:
                 sell_signals += 1
                 reasons.append("Trend baissier")
             
-            # Signal Breakout
             recent_high = max(highs[-10:]) if len(highs) >= 10 else current_price * 1.02
             recent_low = min(lows[-10:]) if len(lows) >= 10 else current_price * 0.98
             
@@ -254,8 +255,6 @@ class FuturesAITrader:
                 reasons.append("Breakout support")
             
             confidence = min(0.9, 0.3 + (max(buy_signals, sell_signals) * 0.15))
-            
-            # Calcul levier dynamique
             leverage = self.calculate_dynamic_leverage(volatility, confidence, price_trend)
             
             if buy_signals >= 2:
@@ -284,11 +283,10 @@ class FuturesAITrader:
                 }
                 
         except Exception as e:
-            print(f"❌ Erreur analyse {symbol}: {e}")
             return {'action': 'HOLD', 'confidence': 0.3, 'reason': f'Erreur analyse: {str(e)}'}
     
     def analyze_market(self, symbol):
-        """Analyse le marché Futures - VERSION CORRIGÉE"""
+        """Analyse le marché Futures"""
         try:
             price = self.get_price(symbol)
             if not price:
@@ -300,16 +298,15 @@ class FuturesAITrader:
             
             analysis = self.advanced_analysis(historical_data, price, symbol)
             if analysis:
-                analysis['symbol'] = symbol  # ⭐ TOUJOURS AJOUTER LE SYMBOL
+                analysis['symbol'] = symbol
                 analysis['price'] = price
             return analysis
             
         except Exception as e:
-            print(f"❌ Erreur analyse marché {symbol}: {e}")
             return None
     
     def execute_trade(self, analysis):
-        """Exécute un trade Futures avec SL/TP - VERSION CORRIGÉE"""
+        """Exécute un trade Futures avec SL/TP"""
         try:
             if not analysis or 'symbol' not in analysis:
                 return False, "❌ Analyse invalide"
@@ -318,12 +315,10 @@ class FuturesAITrader:
             
             if analysis['action'] in ['BUY', 'SELL'] and analysis['confidence'] > 0.5:
                 if symbol not in [pos['symbol'] for pos in self.positions.values()]:
-                    # Calcul SL/TP
                     stop_loss, take_profit = self.calculate_stop_loss_take_profit(
                         analysis['price'], analysis['action'], analysis['volatility']
                     )
                     
-                    # Calcul taille position
                     quantity, margin = self.calculate_position_size(
                         analysis['leverage'], analysis['price'], stop_loss
                     )
@@ -334,7 +329,6 @@ class FuturesAITrader:
                     if quantity <= 0:
                         return False, "❌ Quantité invalide"
                     
-                    # Mode marge
                     margin_mode = self.determine_margin_mode(symbol, analysis['leverage'])
                     
                     self.position_count += 1
@@ -376,7 +370,6 @@ class FuturesAITrader:
                     })
                     return True, log_message
             
-            # Vérifier SL/TP des positions existantes
             self.check_positions_sl_tp()
             return False, None
             
@@ -387,10 +380,10 @@ class FuturesAITrader:
         """Calcule le prix de liquidation"""
         if margin_mode == "ISOLATED":
             if action == "BUY":
-                return entry_price * (1 - 0.9/leverage)  # Buffer 10%
+                return entry_price * (1 - 0.9/leverage)
             else:
                 return entry_price * (1 + 0.9/leverage)
-        else:  # CROSS
+        else:
             return entry_price * 0.5
     
     def check_positions_sl_tp(self):
@@ -403,7 +396,6 @@ class FuturesAITrader:
                 if not current_price:
                     continue
                 
-                # Vérifier SL/TP
                 if (position['action'] == 'BUY' and 
                     (current_price <= position['stop_loss'] or current_price >= position['take_profit'])):
                     positions_to_close.append(position_id)
@@ -411,7 +403,6 @@ class FuturesAITrader:
                       (current_price >= position['stop_loss'] or current_price <= position['take_profit'])):
                     positions_to_close.append(position_id)
             
-            # Fermer les positions
             for position_id in positions_to_close:
                 self.close_position(position_id, "SL/TP")
                 
@@ -426,7 +417,6 @@ class FuturesAITrader:
                 current_price = self.get_price(position['symbol'])
                 
                 if current_price:
-                    # Calcul PnL
                     if position['action'] == 'BUY':
                         pnl = (current_price - position['entry_price']) * position['quantity']
                     else:
@@ -434,10 +424,8 @@ class FuturesAITrader:
                     
                     pnl_percent = (pnl / position['margin']) * 100
                     
-                    # Mettre à jour le capital
                     self.available_balance += position['margin'] + pnl
                     
-                    # Log
                     status = "✅ TP" if ((position['action'] == 'BUY' and current_price >= position['take_profit']) or 
                                        (position['action'] == 'SELL' and current_price <= position['take_profit'])) else "🛑 SL"
                     
@@ -482,14 +470,12 @@ class FuturesAITrader:
                 'value': total_value
             })
             
-            # Garder seulement les 100 derniers points
             if len(self.portfolio_history) > 100:
                 self.portfolio_history = self.portfolio_history[-100:]
             
             return total_value
             
         except Exception as e:
-            print(f"❌ Erreur mise à jour portefeuille: {e}")
             return self.available_balance
     
     def get_portfolio_info(self):
@@ -518,7 +504,6 @@ class FuturesAITrader:
             }
             
         except Exception as e:
-            print(f"❌ Erreur infos portefeuille: {e}")
             return {
                 'current_value': self.available_balance,
                 'available_balance': self.available_balance,
@@ -531,7 +516,7 @@ class FuturesAITrader:
             }
 
 # =============================================
-# BOT MANAGER WEB AVEC CACHE PERSISTANT
+# BOT MANAGER WEB AVEC SYNCHRONISATION
 # =============================================
 class WebBotManager:
     def __init__(self):
@@ -540,6 +525,7 @@ class WebBotManager:
         self.trader = FuturesAITrader(CONFIG['initial_capital'])
         self.logs = []
         self.iteration = 0
+        self.last_sync = datetime.now()
         
     def start_bot(self):
         if not self.running:
@@ -548,7 +534,7 @@ class WebBotManager:
             self.thread.start()
             self._add_log("🚀 Bot Futures démarré")
             self._add_log("⚡ Trading avec SL/TP et levier dynamique")
-            save_bot_automatically()  # ⬅️ SAUVEGARDE AUTOMATIQUE
+            update_bot_state(self)  # ⬅️ SAUVEGARDE IMMÉDIATE
             return True, "Bot démarré"
         return False, "Bot déjà en cours"
     
@@ -556,7 +542,7 @@ class WebBotManager:
         if self.running:
             self.running = False
             self._add_log("🛑 Bot arrêté")
-            save_bot_automatically()  # ⬅️ SAUVEGARDE AUTOMATIQUE
+            update_bot_state(self)  # ⬅️ SAUVEGARDE IMMÉDIATE
             return True, "Bot arrêté"
         return False, "Bot déjà arrêté"
     
@@ -568,7 +554,9 @@ class WebBotManager:
         self.logs.append(f"[{timestamp}] {message}")
         if len(self.logs) > 50:
             self.logs = self.logs[-50:]
-        save_bot_automatically()  # ⬅️ SAUVEGARDE APRÈS CHAQUE LOG IMPORTANT
+        # Sauvegarde après chaque log important
+        if any(keyword in message for keyword in ["🚀", "🛑", "🎯", "✅", "🛑"]):
+            update_bot_state(self)
     
     def _run_bot(self):
         while self.running:
@@ -580,7 +568,6 @@ class WebBotManager:
                 for symbol in CONFIG['cryptos']:
                     analysis = self.trader.analyze_market(symbol)
                     
-                    # ⭐ VÉRIFICATION COMPLÈTE DE L'ANALYSE
                     if (analysis and 
                         analysis.get('action') in ['BUY', 'SELL'] and 
                         analysis.get('confidence', 0) > 0.5 and
@@ -591,12 +578,7 @@ class WebBotManager:
                         if executed:
                             self._add_log(log_message)
                             trades_executed += 1
-                    elif analysis:
-                        # Log les analyses non exécutées pour debug
-                        action = analysis.get('action', 'HOLD')
-                        reason = analysis.get('reason', 'Raison inconnue')
-                        if action != 'HOLD':
-                            self._add_log(f"⏸️ {symbol}: {action} - {reason}")
+                            update_bot_state(self)  # ⬅️ SAUVEGARDE APRÈS TRADE
                 
                 if trades_executed == 0:
                     self._add_log("⏸️ En attente de signaux")
@@ -604,9 +586,10 @@ class WebBotManager:
                 portfolio_info = self.trader.get_portfolio_info()
                 self._add_log(f"💰 Portefeuille: {portfolio_info['current_value']:.2f}$ ({portfolio_info['total_return']:+.2f}%)")
                 
-                # Sauvegarde périodique
-                if self.iteration % 5 == 0:
-                    save_bot_automatically()
+                # Synchronisation périodique
+                if (datetime.now() - self.last_sync).seconds > 30:  # Toutes les 30 secondes
+                    update_bot_state(self)
+                    self.last_sync = datetime.now()
                 
                 time.sleep(CONFIG['check_interval'])
                 
@@ -615,7 +598,7 @@ class WebBotManager:
                 time.sleep(10)
 
 # =============================================
-# INTERFACE STREAMLIT
+# INTERFACE STREAMLIT AVEC SYNCHRO AUTOMATIQUE
 # =============================================
 st.set_page_config(
     page_title="🤖 DeepSeek AI Trader - Futures",
@@ -624,7 +607,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS AMÉLIORÉ
+# CSS
 st.markdown(f"""
 <style>
     .main, .stApp {{
@@ -654,30 +637,34 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =============================================
-# INITIALISATION AVEC CACHE PERSISTANT
+# INITIALISATION AVEC SYNCHRONISATION
 # =============================================
 if 'bot_manager' not in st.session_state:
-    # Essayer de charger depuis le cache persistant
-    cached_bot = load_persistent_cache()
+    # Charger depuis le cache partagé
+    shared_bot = get_bot_state()
     
-    if cached_bot is not None:
-        st.session_state.bot_manager = cached_bot
-        st.sidebar.success("🤖 Bot chargé depuis le cache")
+    if shared_bot is not None:
+        st.session_state.bot_manager = shared_bot
+        st.sidebar.success("🔄 Bot synchronisé depuis le cache partagé")
     else:
-        # Sinon créer un nouveau bot
+        # Nouveau bot si aucun cache existant
         st.session_state.bot_manager = WebBotManager()
-        save_persistent_cache(st.session_state.bot_manager)
+        update_bot_state(st.session_state.bot_manager)
         st.sidebar.info("🆕 Nouveau bot créé")
+
+# Synchronisation automatique au chargement
+sync_bot_state()
 
 def main():
     st.title("🤖 DeepSeek AI Trader - Futures")
     st.markdown(f"**💰 Capital:** {CONFIG['initial_capital']} USDT | **⚡ Levier max:** {CONFIG['max_leverage']}x | **🎯 Risk:** {CONFIG['risk_per_trade']*100}%")
+    st.markdown("**🔄 Cache synchronisé entre tous les appareils**")
     st.markdown("---")
     
     bot_manager = st.session_state.bot_manager
     trader = bot_manager.trader
     
-    # Sidebar
+    # Sidebar avec contrôles de synchronisation
     with st.sidebar:
         st.header("🎮 Contrôles")
         
@@ -698,19 +685,25 @@ def main():
                     st.warning(message)
                 st.rerun()
         
-        # Gestion du cache
+        # Contrôles de synchronisation
         st.markdown("---")
-        st.header("💾 Gestion Cache")
+        st.header("🔄 Synchronisation")
         
-        col_save, col_refresh = st.columns(2)
-        with col_save:
-            if st.button("💾 Sauvegarder", use_container_width=True):
-                save_bot_automatically()
-                st.success("État sauvegardé!")
-                
-        with col_refresh:
-            if st.button("🔄 Actualiser", use_container_width=True):
+        col_sync, col_force = st.columns(2)
+        with col_sync:
+            if st.button("🔄 Synchro", use_container_width=True):
+                if sync_bot_state():
+                    st.success("Synchronisé!")
+                else:
+                    st.error("Erreur synchro")
                 st.rerun()
+                
+        with col_force:
+            if st.button("💾 Sauvegarder", use_container_width=True):
+                if update_bot_state(bot_manager):
+                    st.success("Sauvegardé!")
+                else:
+                    st.error("Erreur sauvegarde")
         
         st.markdown("---")
         status = "🟢 EN COURS" if bot_manager.running else "🔴 ARRÊTÉ"
@@ -753,7 +746,6 @@ def main():
         if trader.positions:
             positions_data = []
             
-            # ⭐ CORRECTION : Créer une copie de la liste avant d'itérer
             positions_items = list(trader.positions.items())
             
             for pos_id, position in positions_items:
@@ -819,8 +811,13 @@ def main():
                 else:
                     st.text(log)
     
-    # Actualisation automatique
+    # Actualisation automatique avec synchronisation
     if bot_manager.running:
+        # Synchronisation périodique pendant l'exécution
+        if st.session_state.get('last_auto_sync', 0) == 0 or time.time() - st.session_state.last_auto_sync > 10:
+            sync_bot_state()
+            st.session_state.last_auto_sync = time.time()
+        
         time.sleep(3)
         st.rerun()
 
