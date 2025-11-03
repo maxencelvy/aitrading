@@ -678,33 +678,37 @@ def main():
         else:
             st.info("📊 Le graphique s'affichera lorsque le bot sera actif")
         
-        # Positions
-        st.subheader("💰 Positions Futures")
-        
-        if trader.positions:
-            positions_data = []
-            for pos_id, position in trader.positions.items():
-                current_price = trader.get_price(position['symbol'])
-                if current_price:
-                    if position['action'] == 'BUY':
-                        pnl = (current_price - position['entry_price']) * position['quantity']
-                    else:
-                        pnl = (position['entry_price'] - current_price) * position['quantity']
-                    
-                    pnl_percent = (pnl / position['margin']) * 100
-                    
-                    positions_data.append({
-                        'Symbol': position['symbol'],
-                        'Side': position['action'],
-                        'Levier': f"{position['leverage']}x",
-                        'Mode Marge': position['margin_mode'],
-                        'Prix Entrée': f"{position['entry_price']:.2f}",
-                        'Prix Actuel': f"{current_price:.2f}",
-                        'SL': f"{position['stop_loss']:.2f}",
-                        'TP': f"{position['take_profit']:.2f}",
-                        'P&L': f"{pnl:+.2f}$",
-                        'P&L %': f"{pnl_percent:+.1f}%"
-                    })
+# Positions
+st.subheader("💰 Positions Futures")
+
+if trader.positions:
+    positions_data = []
+    
+    # ⭐ CORRECTION : Créer une copie de la liste avant d'itérer
+    positions_items = list(trader.positions.items())
+    
+    for pos_id, position in positions_items:  # ⬅️ MAINTENANT ON ITÈRE SUR LA COPIE
+        current_price = trader.get_price(position['symbol'])
+        if current_price:
+            if position['action'] == 'BUY':
+                pnl = (current_price - position['entry_price']) * position['quantity']
+            else:
+                pnl = (position['entry_price'] - current_price) * position['quantity']
+            
+            pnl_percent = (pnl / position['margin']) * 100
+            
+            positions_data.append({
+                'Symbol': position['symbol'],
+                'Side': position['action'],
+                'Levier': f"{position['leverage']}x",
+                'Mode Marge': position['margin_mode'],
+                'Prix Entrée': f"{position['entry_price']:.2f}",
+                'Prix Actuel': f"{current_price:.2f}",
+                'SL': f"{position['stop_loss']:.2f}",
+                'TP': f"{position['take_profit']:.2f}",
+                'P&L': f"{pnl:+.2f}$",
+                'P&L %': f"{pnl_percent:+.1f}%"
+            })
             
             if positions_data:
                 df_positions = pd.DataFrame(positions_data)
