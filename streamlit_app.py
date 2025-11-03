@@ -11,33 +11,139 @@ import random
 import requests
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
-# Votre code existant ici...
+# Configuration de la page
+st.set_page_config(page_title="Mon App", layout="wide")
 
-# === CODE TEMPORAIRE DE SAUVEGARDE ===
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔧 Migration des données")
+# Fichier de cache persistant
+CACHE_FILE = "persistent_cache.pkl"
 
-if st.sidebar.button("💾 SAUVEGARDER avant modification du code"):
+@st.cache_data(ttl=3600)  # Cache en mémoire pour 1 heure
+def load_initial_data():
+    """Charge les données initiales depuis votre source"""
+    # Remplacez par votre vrai chargement de données
     try:
-        # Sauvegarder les données actuelles
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Adapter selon comment vos données sont stockées
-        if 'mes_donnees' in st.session_state:
-            df = st.session_state.mes_donnees
-            filename = f"sauvegarde_{timestamp}.csv"
-            df.to_csv(filename, index=False)
-            st.sidebar.success(f"✅ Sauvegardé dans {filename}")
-        else:
-            st.sidebar.warning("❌ Données non trouvées dans st.session_state")
-            
-    except Exception as e:
-        st.sidebar.error(f"❌ Erreur: {e}")
+        # Exemple - adaptez à votre cas
+        df = pd.read_csv('vos_donnees.csv')
+        return df
+    except:
+        # Retourne un DataFrame vide si le fichier n'existe pas
+        return pd.DataFrame()
 
-if st.sidebar.button("🔄 Charger depuis sauvegarde"):
-    # Code pour recharger si besoin
-    st.sidebar.info("Fonctionnalité à implémenter")
-# === FIN DU CODE TEMPORAIRE ===
+def load_persistent_cache():
+    """Charge le cache persistant depuis le fichier"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'rb') as f:
+                return pickle.load(f)
+        return None
+    except:
+        return None
+
+def save_persistent_cache(data):
+    """Sauvegarde les données dans le cache persistant"""
+    try:
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(data, f)
+        return True
+    except Exception as e:
+        st.error(f"Erreur sauvegarde: {e}")
+        return False
+
+def save_backup(data):
+    """Crée une sauvegarde des données"""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = f"backup_data_{timestamp}.pkl"
+        with open(backup_file, 'wb') as f:
+            pickle.dump(data, f)
+        return backup_file
+    except:
+        return None
+
+# Initialisation des données
+if 'mes_donnees' not in st.session_state:
+    # Essayer d'abord le cache persistant
+    cached_data = load_persistent_cache()
+    
+    if cached_data is not None:
+        st.session_state.mes_donnees = cached_data
+        st.info("📁 Données chargées depuis le cache persistant")
+    else:
+        # Sinon charger les données initiales
+        st.session_state.mes_donnees = load_initial_data()
+        # Sauvegarder immédiatement dans le cache
+        save_persistent_cache(st.session_state.mes_donnees)
+        st.info("🆕 Données initiales chargées et cache créé")
+
+# Sidebar pour la gestion des données
+with st.sidebar:
+    st.header("💾 Gestion des données")
+    
+    # Sauvegarde manuelle
+    if st.button("💾 Sauvegarder maintenant"):
+        if save_persistent_cache(st.session_state.mes_donnees):
+            st.success("Données sauvegardées!")
+        else:
+            st.error("Erreur lors de la sauvegarde")
+    
+    # Créer un backup
+    if st.button("📦 Créer une sauvegarde"):
+        backup_file = save_backup(st.session_state.mes_donnees)
+        if backup_file:
+            st.success(f"Backup créé: {backup_file}")
+        else:
+            st.error("Erreur création backup")
+    
+    # Statistiques
+    st.markdown("---")
+    st.write(f"**📊 Lignes:** {len(st.session_state.mes_donnees)}")
+    st.write(f"**📁 Colonnes:** {len(st.session_state.mes_donnees.columns)}")
+    
+    # Debug info
+    with st.expander("🔍 Debug info"):
+        st.write("Clés session_state:", list(st.session_state.keys()))
+        st.write("Type données:", type(st.session_state.mes_donnees))
+
+# VOTRE CODE EXISTANT ICI
+# Utilisez st.session_state.mes_donnees partout dans votre app
+
+st.title("Mon Application avec Cache Persistant")
+
+# Exemple d'utilisation
+st.write("## Vos données")
+st.dataframe(st.session_state.mes_donnees)
+
+# Exemple de modification des données
+with st.form("modifier_donnees"):
+    st.write("### Ajouter une entrée")
+    # Vos champs de formulaire ici...
+    submitted = st.form_submit_button("Ajouter")
+    
+    if submitted:
+        # Exemple: ajouter une ligne (adaptez à votre cas)
+        nouvelle_ligne = pd.DataFrame([{
+            'colonne1': 'valeur1',
+            'colonne2': 'valeur2'
+        }])
+        
+        st.session_state.mes_donnees = pd.concat([
+            st.session_state.mes_donnees, 
+            nouvelle_ligne
+        ], ignore_index=True)
+        
+        # SAUVEGARDE AUTOMATIQUE après modification
+        if save_persistent_cache(st.session_state.mes_donnees):
+            st.success("✅ Données mises à jour et sauvegardées!")
+            st.rerun()
+        else:
+            st.error("❌ Erreur sauvegarde après modification")
+
+# Fonction utilitaire pour sauvegarder après chaque modification
+def update_data(new_data):
+    """Met à jour les données et sauvegarde automatiquement"""
+    st.session_state.mes_donnees = new_data
+    save_persistent_cache(new_data)
+    st.rerun()
 # =============================================
 # CONFIGURATION FUTURES
 # =============================================
