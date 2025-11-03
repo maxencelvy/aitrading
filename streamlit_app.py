@@ -1,4 +1,4 @@
-# web_app_futures.py - VERSION COMPLÈTE CORRIGÉE
+# web_app_futures.py - VERSION AVEC CACHE PERSISTANT
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -11,139 +11,9 @@ import random
 import requests
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
-# Configuration de la page
-st.set_page_config(page_title="Mon App", layout="wide")
+import os
+import pickle
 
-# Fichier de cache persistant
-CACHE_FILE = "persistent_cache.pkl"
-
-@st.cache_data(ttl=3600)  # Cache en mémoire pour 1 heure
-def load_initial_data():
-    """Charge les données initiales depuis votre source"""
-    # Remplacez par votre vrai chargement de données
-    try:
-        # Exemple - adaptez à votre cas
-        df = pd.read_csv('vos_donnees.csv')
-        return df
-    except:
-        # Retourne un DataFrame vide si le fichier n'existe pas
-        return pd.DataFrame()
-
-def load_persistent_cache():
-    """Charge le cache persistant depuis le fichier"""
-    try:
-        if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, 'rb') as f:
-                return pickle.load(f)
-        return None
-    except:
-        return None
-
-def save_persistent_cache(data):
-    """Sauvegarde les données dans le cache persistant"""
-    try:
-        with open(CACHE_FILE, 'wb') as f:
-            pickle.dump(data, f)
-        return True
-    except Exception as e:
-        st.error(f"Erreur sauvegarde: {e}")
-        return False
-
-def save_backup(data):
-    """Crée une sauvegarde des données"""
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = f"backup_data_{timestamp}.pkl"
-        with open(backup_file, 'wb') as f:
-            pickle.dump(data, f)
-        return backup_file
-    except:
-        return None
-
-# Initialisation des données
-if 'mes_donnees' not in st.session_state:
-    # Essayer d'abord le cache persistant
-    cached_data = load_persistent_cache()
-    
-    if cached_data is not None:
-        st.session_state.mes_donnees = cached_data
-        st.info("📁 Données chargées depuis le cache persistant")
-    else:
-        # Sinon charger les données initiales
-        st.session_state.mes_donnees = load_initial_data()
-        # Sauvegarder immédiatement dans le cache
-        save_persistent_cache(st.session_state.mes_donnees)
-        st.info("🆕 Données initiales chargées et cache créé")
-
-# Sidebar pour la gestion des données
-with st.sidebar:
-    st.header("💾 Gestion des données")
-    
-    # Sauvegarde manuelle
-    if st.button("💾 Sauvegarder maintenant"):
-        if save_persistent_cache(st.session_state.mes_donnees):
-            st.success("Données sauvegardées!")
-        else:
-            st.error("Erreur lors de la sauvegarde")
-    
-    # Créer un backup
-    if st.button("📦 Créer une sauvegarde"):
-        backup_file = save_backup(st.session_state.mes_donnees)
-        if backup_file:
-            st.success(f"Backup créé: {backup_file}")
-        else:
-            st.error("Erreur création backup")
-    
-    # Statistiques
-    st.markdown("---")
-    st.write(f"**📊 Lignes:** {len(st.session_state.mes_donnees)}")
-    st.write(f"**📁 Colonnes:** {len(st.session_state.mes_donnees.columns)}")
-    
-    # Debug info
-    with st.expander("🔍 Debug info"):
-        st.write("Clés session_state:", list(st.session_state.keys()))
-        st.write("Type données:", type(st.session_state.mes_donnees))
-
-# VOTRE CODE EXISTANT ICI
-# Utilisez st.session_state.mes_donnees partout dans votre app
-
-st.title("Mon Application avec Cache Persistant")
-
-# Exemple d'utilisation
-st.write("## Vos données")
-st.dataframe(st.session_state.mes_donnees)
-
-# Exemple de modification des données
-with st.form("modifier_donnees"):
-    st.write("### Ajouter une entrée")
-    # Vos champs de formulaire ici...
-    submitted = st.form_submit_button("Ajouter")
-    
-    if submitted:
-        # Exemple: ajouter une ligne (adaptez à votre cas)
-        nouvelle_ligne = pd.DataFrame([{
-            'colonne1': 'valeur1',
-            'colonne2': 'valeur2'
-        }])
-        
-        st.session_state.mes_donnees = pd.concat([
-            st.session_state.mes_donnees, 
-            nouvelle_ligne
-        ], ignore_index=True)
-        
-        # SAUVEGARDE AUTOMATIQUE après modification
-        if save_persistent_cache(st.session_state.mes_donnees):
-            st.success("✅ Données mises à jour et sauvegardées!")
-            st.rerun()
-        else:
-            st.error("❌ Erreur sauvegarde après modification")
-
-# Fonction utilitaire pour sauvegarder après chaque modification
-def update_data(new_data):
-    """Met à jour les données et sauvegarde automatiquement"""
-    st.session_state.mes_donnees = new_data
-    save_persistent_cache(new_data)
-    st.rerun()
 # =============================================
 # CONFIGURATION FUTURES
 # =============================================
@@ -169,6 +39,40 @@ CONFIG = {
         "accent_purple": "#8b5cf6"
     }
 }
+
+# =============================================
+# SYSTÈME DE CACHE PERSISTANT
+# =============================================
+CACHE_FILE = "bot_cache.pkl"
+
+def load_persistent_cache():
+    """Charge le cache persistant depuis le fichier"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'rb') as f:
+                return pickle.load(f)
+        return None
+    except Exception as e:
+        print(f"❌ Erreur chargement cache: {e}")
+        return None
+
+def save_persistent_cache(data):
+    """Sauvegarde les données dans le cache persistant"""
+    try:
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(data, f)
+        return True
+    except Exception as e:
+        print(f"❌ Erreur sauvegarde cache: {e}")
+        return False
+
+def save_bot_automatically():
+    """Sauvegarde automatique du bot après actions importantes"""
+    if 'bot_manager' in st.session_state:
+        try:
+            save_persistent_cache(st.session_state.bot_manager)
+        except Exception as e:
+            print(f"❌ Erreur sauvegarde auto: {e}")
 
 # =============================================
 # AI TRADER FUTURES AVEC LEVIER DYNAMIQUE
@@ -627,7 +531,7 @@ class FuturesAITrader:
             }
 
 # =============================================
-# BOT MANAGER WEB
+# BOT MANAGER WEB AVEC CACHE PERSISTANT
 # =============================================
 class WebBotManager:
     def __init__(self):
@@ -644,6 +548,7 @@ class WebBotManager:
             self.thread.start()
             self._add_log("🚀 Bot Futures démarré")
             self._add_log("⚡ Trading avec SL/TP et levier dynamique")
+            save_bot_automatically()  # ⬅️ SAUVEGARDE AUTOMATIQUE
             return True, "Bot démarré"
         return False, "Bot déjà en cours"
     
@@ -651,6 +556,7 @@ class WebBotManager:
         if self.running:
             self.running = False
             self._add_log("🛑 Bot arrêté")
+            save_bot_automatically()  # ⬅️ SAUVEGARDE AUTOMATIQUE
             return True, "Bot arrêté"
         return False, "Bot déjà arrêté"
     
@@ -662,6 +568,7 @@ class WebBotManager:
         self.logs.append(f"[{timestamp}] {message}")
         if len(self.logs) > 50:
             self.logs = self.logs[-50:]
+        save_bot_automatically()  # ⬅️ SAUVEGARDE APRÈS CHAQUE LOG IMPORTANT
     
     def _run_bot(self):
         while self.running:
@@ -696,6 +603,10 @@ class WebBotManager:
                 
                 portfolio_info = self.trader.get_portfolio_info()
                 self._add_log(f"💰 Portefeuille: {portfolio_info['current_value']:.2f}$ ({portfolio_info['total_return']:+.2f}%)")
+                
+                # Sauvegarde périodique
+                if self.iteration % 5 == 0:
+                    save_bot_automatically()
                 
                 time.sleep(CONFIG['check_interval'])
                 
@@ -742,9 +653,21 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialisation
+# =============================================
+# INITIALISATION AVEC CACHE PERSISTANT
+# =============================================
 if 'bot_manager' not in st.session_state:
-    st.session_state.bot_manager = WebBotManager()
+    # Essayer de charger depuis le cache persistant
+    cached_bot = load_persistent_cache()
+    
+    if cached_bot is not None:
+        st.session_state.bot_manager = cached_bot
+        st.sidebar.success("🤖 Bot chargé depuis le cache")
+    else:
+        # Sinon créer un nouveau bot
+        st.session_state.bot_manager = WebBotManager()
+        save_persistent_cache(st.session_state.bot_manager)
+        st.sidebar.info("🆕 Nouveau bot créé")
 
 def main():
     st.title("🤖 DeepSeek AI Trader - Futures")
@@ -752,7 +675,7 @@ def main():
     st.markdown("---")
     
     bot_manager = st.session_state.bot_manager
-    trader = bot_manager.trader  # ⬅️ ASSUREZ-VOUS QUE CETTE LIGNE EST PRÉSENTE
+    trader = bot_manager.trader
     
     # Sidebar
     with st.sidebar:
@@ -775,6 +698,20 @@ def main():
                     st.warning(message)
                 st.rerun()
         
+        # Gestion du cache
+        st.markdown("---")
+        st.header("💾 Gestion Cache")
+        
+        col_save, col_refresh = st.columns(2)
+        with col_save:
+            if st.button("💾 Sauvegarder", use_container_width=True):
+                save_bot_automatically()
+                st.success("État sauvegardé!")
+                
+        with col_refresh:
+            if st.button("🔄 Actualiser", use_container_width=True):
+                st.rerun()
+        
         st.markdown("---")
         status = "🟢 EN COURS" if bot_manager.running else "🔴 ARRÊTÉ"
         st.markdown(f"**Statut:** {status}")
@@ -785,7 +722,7 @@ def main():
         st.markdown("---")
         st.header("💎 Prix Futures")
         for crypto in CONFIG['cryptos']:
-            price = trader.get_price(crypto)  # ⬅️ ICI trader DOIT ÊTRE DÉFINI
+            price = trader.get_price(crypto)
             if price:
                 st.metric(crypto, f"{price:.2f}$")
     
@@ -796,7 +733,7 @@ def main():
         # Graphique
         st.subheader("📈 Performance Futures")
         
-        if trader.portfolio_history:  # ⬅️ MAINTENANT trader EST DÉFINI
+        if trader.portfolio_history:
             df = pd.DataFrame(trader.portfolio_history)
             fig = px.line(df, x='timestamp', y='value', 
                          title=f"Valeur du Portefeuille - {df['value'].iloc[-1]:.2f}$")
@@ -813,7 +750,7 @@ def main():
         # Positions
         st.subheader("💰 Positions Futures")
         
-        if trader.positions:  # ⬅️ MAINTENANT trader EST DÉFINI
+        if trader.positions:
             positions_data = []
             
             # ⭐ CORRECTION : Créer une copie de la liste avant d'itérer
@@ -849,6 +786,7 @@ def main():
                 st.info("💡 Calcul des positions en cours...")
         else:
             st.info("📭 Aucune position ouverte")
+    
     with col2:
         # Statistiques
         st.subheader("📊 Statistiques Futures")
