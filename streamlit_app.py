@@ -11,7 +11,33 @@ import random
 import requests
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+# Votre code existant ici...
 
+# === CODE TEMPORAIRE DE SAUVEGARDE ===
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔧 Migration des données")
+
+if st.sidebar.button("💾 SAUVEGARDER avant modification du code"):
+    try:
+        # Sauvegarder les données actuelles
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Adapter selon comment vos données sont stockées
+        if 'mes_donnees' in st.session_state:
+            df = st.session_state.mes_donnees
+            filename = f"sauvegarde_{timestamp}.csv"
+            df.to_csv(filename, index=False)
+            st.sidebar.success(f"✅ Sauvegardé dans {filename}")
+        else:
+            st.sidebar.warning("❌ Données non trouvées dans st.session_state")
+            
+    except Exception as e:
+        st.sidebar.error(f"❌ Erreur: {e}")
+
+if st.sidebar.button("🔄 Charger depuis sauvegarde"):
+    # Code pour recharger si besoin
+    st.sidebar.info("Fonctionnalité à implémenter")
+# === FIN DU CODE TEMPORAIRE ===
 # =============================================
 # CONFIGURATION FUTURES
 # =============================================
