@@ -1,4 +1,4 @@
-# web_app_futures.py - VERSION AVEC CACHE SYNCHRONISÉ
+# web_app_futures.py - VERSION STABLE SANS PICKLE COMPLEXE
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -41,59 +41,52 @@ CONFIG = {
 }
 
 # =============================================
-# SYSTÈME DE CACHE SYNCHRONISÉ
+# SYSTÈME DE CACHE SIMPLIFIÉ (SEULEMENT LES DONNÉES)
 # =============================================
-CACHE_FILE = "shared_bot_cache.pkl"
-CACHE_LOCK = threading.Lock()
+CACHE_FILE = "bot_data_cache.pkl"
 
-def load_shared_cache():
-    """Charge le cache partagé avec verrouillage"""
-    with CACHE_LOCK:
-        try:
-            if os.path.exists(CACHE_FILE):
-                with open(CACHE_FILE, 'rb') as f:
-                    return pickle.load(f)
-            return None
-        except Exception as e:
-            print(f"❌ Erreur chargement cache: {e}")
-            return None
-
-def save_shared_cache(data):
-    """Sauvegarde dans le cache partagé avec verrouillage"""
-    with CACHE_LOCK:
-        try:
-            with open(CACHE_FILE, 'wb') as f:
-                pickle.dump(data, f)
-            return True
-        except Exception as e:
-            print(f"❌ Erreur sauvegarde cache: {e}")
-            return False
-
-def get_bot_state():
-    """Récupère l'état ACTUEL du bot depuis le cache partagé"""
-    return load_shared_cache()
-
-def update_bot_state(bot_manager):
-    """Met à jour l'état du bot dans le cache partagé"""
-    if bot_manager:
-        return save_shared_cache(bot_manager)
-    return False
-
-def sync_bot_state():
-    """Synchronise l'état du bot entre toutes les sessions"""
+def save_bot_data(trader_data, logs, iteration, running_status):
+    """Sauvegarde seulement les données (pas les objets complexes)"""
     try:
-        shared_state = get_bot_state()
-        if shared_state and 'bot_manager' in st.session_state:
-            # Mettre à jour notre session avec l'état partagé
-            st.session_state.bot_manager = shared_state
-            return True
-        return False
+        data_to_save = {
+            'trader_data': {
+                'available_balance': trader_data.available_balance,
+                'positions': trader_data.positions,
+                'trade_history': trader_data.trade_history,
+                'portfolio_history': trader_data.portfolio_history,
+                'position_count': trader_data.position_count,
+                'last_analysis': trader_data.last_analysis
+            },
+            'logs': logs[-50:],  # Garde seulement 50 derniers logs
+            'iteration': iteration,
+            'running_status': running_status,
+            'last_save': datetime.now().isoformat()
+        }
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(data_to_save, f)
+        return True
     except Exception as e:
-        print(f"❌ Erreur synchronisation: {e}")
+        print(f"❌ Erreur sauvegarde données: {e}")
         return False
 
+def load_bot_data():
+    """Charge les données sauvegardées"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'rb') as f:
+                return pickle.load(f)
+        return None
+    except Exception as e:
+        print(f"❌ Erreur chargement données: {e}")
+        # Si le fichier est corrompu, on le supprime
+        try:
+            os.remove(CACHE_FILE)
+        except:
+            pass
+        return None
+
 # =============================================
-# AI TRADER FUTURES (identique à avant)
+# AI TRADER FUTURES (SANS MODIFICATION)
 # =============================================
 class FuturesAITrader:
     def __init__(self, initial_capital=100):
@@ -516,7 +509,7 @@ class FuturesAITrader:
             }
 
 # =============================================
-# BOT MANAGER WEB AVEC SYNCHRONISATION
+# BOT MANAGER WEB SIMPLIFIÉ
 # =============================================
 class WebBotManager:
     def __init__(self):
@@ -525,8 +518,39 @@ class WebBotManager:
         self.trader = FuturesAITrader(CONFIG['initial_capital'])
         self.logs = []
         self.iteration = 0
-        self.last_sync = datetime.now()
         
+        # Charger les données sauvegardées au démarrage
+        self._load_initial_data()
+    
+    def _load_initial_data(self):
+        """Charge les données sauvegardées au démarrage"""
+        saved_data = load_bot_data()
+        if saved_data:
+            try:
+                # Restaurer les données du trader
+                if 'trader_data' in saved_data:
+                    trader_data = saved_data['trader_data']
+                    self.trader.available_balance = trader_data.get('available_balance', CONFIG['initial_capital'])
+                    self.trader.positions = trader_data.get('positions', {})
+                    self.trader.trade_history = trader_data.get('trade_history', [])
+                    self.trader.portfolio_history = trader_data.get('portfolio_history', [{"timestamp": datetime.now(), "value": CONFIG['initial_capital']}])
+                    self.trader.position_count = trader_data.get('position_count', 0)
+                    self.trader.last_analysis = trader_data.get('last_analysis', {})
+                
+                # Restaurer les logs
+                self.logs = saved_data.get('logs', [])
+                self.iteration = saved_data.get('iteration', 0)
+                
+                # Note: On ne restaure pas running_status pour éviter les conflits
+                self.logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Données chargées depuis sauvegarde")
+                
+            except Exception as e:
+                self.logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Erreur chargement données: {e}")
+    
+    def _save_data(self):
+        """Sauvegarde les données"""
+        save_bot_data(self.trader, self.logs, self.iteration, self.running)
+    
     def start_bot(self):
         if not self.running:
             self.running = True
@@ -534,7 +558,7 @@ class WebBotManager:
             self.thread.start()
             self._add_log("🚀 Bot Futures démarré")
             self._add_log("⚡ Trading avec SL/TP et levier dynamique")
-            update_bot_state(self)  # ⬅️ SAUVEGARDE IMMÉDIATE
+            self._save_data()  # Sauvegarde immédiate
             return True, "Bot démarré"
         return False, "Bot déjà en cours"
     
@@ -542,7 +566,7 @@ class WebBotManager:
         if self.running:
             self.running = False
             self._add_log("🛑 Bot arrêté")
-            update_bot_state(self)  # ⬅️ SAUVEGARDE IMMÉDIATE
+            self._save_data()  # Sauvegarde immédiate
             return True, "Bot arrêté"
         return False, "Bot déjà arrêté"
     
@@ -554,9 +578,10 @@ class WebBotManager:
         self.logs.append(f"[{timestamp}] {message}")
         if len(self.logs) > 50:
             self.logs = self.logs[-50:]
-        # Sauvegarde après chaque log important
+        
+        # Sauvegarde après les logs importants
         if any(keyword in message for keyword in ["🚀", "🛑", "🎯", "✅", "🛑"]):
-            update_bot_state(self)
+            self._save_data()
     
     def _run_bot(self):
         while self.running:
@@ -578,7 +603,7 @@ class WebBotManager:
                         if executed:
                             self._add_log(log_message)
                             trades_executed += 1
-                            update_bot_state(self)  # ⬅️ SAUVEGARDE APRÈS TRADE
+                            self._save_data()  # Sauvegarde après trade
                 
                 if trades_executed == 0:
                     self._add_log("⏸️ En attente de signaux")
@@ -586,19 +611,19 @@ class WebBotManager:
                 portfolio_info = self.trader.get_portfolio_info()
                 self._add_log(f"💰 Portefeuille: {portfolio_info['current_value']:.2f}$ ({portfolio_info['total_return']:+.2f}%)")
                 
-                # Synchronisation périodique
-                if (datetime.now() - self.last_sync).seconds > 30:  # Toutes les 30 secondes
-                    update_bot_state(self)
-                    self.last_sync = datetime.now()
+                # Sauvegarde périodique
+                if self.iteration % 5 == 0:
+                    self._save_data()
                 
                 time.sleep(CONFIG['check_interval'])
                 
             except Exception as e:
                 self._add_log(f"❌ Erreur: {str(e)}")
+                self._save_data()  # Sauvegarde en cas d'erreur
                 time.sleep(10)
 
 # =============================================
-# INTERFACE STREAMLIT AVEC SYNCHRO AUTOMATIQUE
+# INTERFACE STREAMLIT
 # =============================================
 st.set_page_config(
     page_title="🤖 DeepSeek AI Trader - Futures",
@@ -637,34 +662,21 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =============================================
-# INITIALISATION AVEC SYNCHRONISATION
+# INITIALISATION
 # =============================================
 if 'bot_manager' not in st.session_state:
-    # Charger depuis le cache partagé
-    shared_bot = get_bot_state()
-    
-    if shared_bot is not None:
-        st.session_state.bot_manager = shared_bot
-        st.sidebar.success("🔄 Bot synchronisé depuis le cache partagé")
-    else:
-        # Nouveau bot si aucun cache existant
-        st.session_state.bot_manager = WebBotManager()
-        update_bot_state(st.session_state.bot_manager)
-        st.sidebar.info("🆕 Nouveau bot créé")
-
-# Synchronisation automatique au chargement
-sync_bot_state()
+    st.session_state.bot_manager = WebBotManager()
 
 def main():
     st.title("🤖 DeepSeek AI Trader - Futures")
     st.markdown(f"**💰 Capital:** {CONFIG['initial_capital']} USDT | **⚡ Levier max:** {CONFIG['max_leverage']}x | **🎯 Risk:** {CONFIG['risk_per_trade']*100}%")
-    st.markdown("**🔄 Cache synchronisé entre tous les appareils**")
+    st.markdown("**💾 Système de sauvegarde stable activé**")
     st.markdown("---")
     
     bot_manager = st.session_state.bot_manager
     trader = bot_manager.trader
     
-    # Sidebar avec contrôles de synchronisation
+    # Sidebar
     with st.sidebar:
         st.header("🎮 Contrôles")
         
@@ -685,25 +697,23 @@ def main():
                     st.warning(message)
                 st.rerun()
         
-        # Contrôles de synchronisation
+        # Gestion données
         st.markdown("---")
-        st.header("🔄 Synchronisation")
+        st.header("💾 Données")
         
-        col_sync, col_force = st.columns(2)
-        with col_sync:
-            if st.button("🔄 Synchro", use_container_width=True):
-                if sync_bot_state():
-                    st.success("Synchronisé!")
-                else:
-                    st.error("Erreur synchro")
+        if st.button("💾 Sauvegarder maintenant", use_container_width=True):
+            bot_manager._save_data()
+            st.success("Données sauvegardées!")
+            
+        if st.button("🗑️ Réinitialiser", use_container_width=True):
+            try:
+                if os.path.exists(CACHE_FILE):
+                    os.remove(CACHE_FILE)
+                st.session_state.bot_manager = WebBotManager()
+                st.success("Données réinitialisées!")
                 st.rerun()
-                
-        with col_force:
-            if st.button("💾 Sauvegarder", use_container_width=True):
-                if update_bot_state(bot_manager):
-                    st.success("Sauvegardé!")
-                else:
-                    st.error("Erreur sauvegarde")
+            except:
+                st.error("Erreur réinitialisation")
         
         st.markdown("---")
         status = "🟢 EN COURS" if bot_manager.running else "🔴 ARRÊTÉ"
@@ -719,11 +729,10 @@ def main():
             if price:
                 st.metric(crypto, f"{price:.2f}$")
     
-    # Layout principal
+    # Layout principal (identique)
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        # Graphique
         st.subheader("📈 Performance Futures")
         
         if trader.portfolio_history:
@@ -740,12 +749,10 @@ def main():
         else:
             st.info("📊 Le graphique s'affichera lorsque le bot sera actif")
         
-        # Positions
         st.subheader("💰 Positions Futures")
         
         if trader.positions:
             positions_data = []
-            
             positions_items = list(trader.positions.items())
             
             for pos_id, position in positions_items:
@@ -774,13 +781,10 @@ def main():
             if positions_data:
                 df_positions = pd.DataFrame(positions_data)
                 st.dataframe(df_positions, use_container_width=True, height=300)
-            else:
-                st.info("💡 Calcul des positions en cours...")
         else:
             st.info("📭 Aucune position ouverte")
     
     with col2:
-        # Statistiques
         st.subheader("📊 Statistiques Futures")
         
         portfolio_info = trader.get_portfolio_info()
@@ -794,7 +798,6 @@ def main():
         st.metric("Win Rate", f"{portfolio_info['win_rate']:.1f}%")
         st.metric("Levier Moyen", f"{portfolio_info['avg_leverage']:.1f}x")
         
-        # Logs
         st.subheader("📝 Logs Trading")
         
         logs_container = st.container(height=400)
@@ -811,13 +814,8 @@ def main():
                 else:
                     st.text(log)
     
-    # Actualisation automatique avec synchronisation
+    # Actualisation automatique
     if bot_manager.running:
-        # Synchronisation périodique pendant l'exécution
-        if st.session_state.get('last_auto_sync', 0) == 0 or time.time() - st.session_state.last_auto_sync > 10:
-            sync_bot_state()
-            st.session_state.last_auto_sync = time.time()
-        
         time.sleep(3)
         st.rerun()
 
